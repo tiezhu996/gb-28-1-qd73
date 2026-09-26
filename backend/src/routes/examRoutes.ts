@@ -4,6 +4,7 @@ import {
   getExam,
   createExam,
   autoGenerateExam,
+  validateAutoGenerate,
   updateExam,
   deleteExam,
   publishExam,
@@ -18,6 +19,7 @@ router.get('/:id', authMiddleware, getExam);
 router.use(authMiddleware, requireRole('teacher'));
 
 router.post('/', createExam);
+router.post('/auto-generate/validate', validateAutoGenerate);
 router.post('/auto-generate', autoGenerateExam);
 router.put('/:id', updateExam);
 router.delete('/:id', deleteExam);

@@ -50,6 +50,35 @@ export interface IExamQuestion {
   score: number;
 }
 
+export interface IKnowledgeRequirement {
+  knowledgePoint: string;
+  minCount: number;
+}
+
+export interface IAutoGroupRule {
+  type?: QuestionType | '';
+  difficulty?: DifficultyLevel | '';
+  count: number;
+  /** 每题分值 */
+  scorePerQuestion: number;
+  /** 必考知识点及至少抽中的条数 */
+  knowledgeRequirements?: IKnowledgeRequirement[];
+}
+
+export type AutoGroupShortfallKind = 'rule' | 'knowledge';
+
+export interface IAutoGroupShortfall {
+  /** rule: 题型/难度条数不足；knowledge: 必考知识点条数不足 */
+  kind: AutoGroupShortfallKind;
+  ruleIndex: number;
+  ruleLabel: string;
+  knowledgePoint?: string;
+  need: number;
+  available: number;
+  short: number;
+  message: string;
+}
+
 export interface IExam {
   _id: Types.ObjectId;
   title: string;

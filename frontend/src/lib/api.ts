@@ -82,6 +82,9 @@ export const examAPI = {
   
   autoGenerateExam: (data: any) =>
     api.post('/exams/auto-generate', data),
+
+  validateAutoGenerate: (data: any) =>
+    api.post('/exams/auto-generate/validate', data),
   
   updateExam: (id: string, data: any) =>
     api.put(`/exams/${id}`, data),

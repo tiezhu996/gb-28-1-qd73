@@ -44,6 +44,40 @@ export interface ExamQuestion {
   score: number;
 }
 
+export interface KnowledgeRequirement {
+  knowledgePoint: string;
+  minCount: number;
+}
+
+export interface AutoGroupRule {
+  type: QuestionType | '';
+  difficulty: DifficultyLevel | '';
+  count: number;
+  scorePerQuestion: number;
+  knowledgeRequirements: KnowledgeRequirement[];
+}
+
+export type AutoGroupShortfallKind = 'rule' | 'knowledge';
+
+export interface AutoGroupShortfall {
+  kind: AutoGroupShortfallKind;
+  ruleIndex: number;
+  ruleLabel: string;
+  knowledgePoint?: string;
+  need: number;
+  available: number;
+  short: number;
+  message: string;
+}
+
+export interface AutoGroupValidation {
+  success: boolean;
+  feasible: boolean;
+  totalQuestions?: number;
+  totalScore?: number;
+  shortfalls?: AutoGroupShortfall[];
+}
+
 export interface Exam {
   _id: string;
   title: string;

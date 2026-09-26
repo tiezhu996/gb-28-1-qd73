@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
 import { Exam } from '../models/Exam';
-import { Question } from '../models/Question';
-import { AuthRequest, ExamStatus, DifficultyLevel, QuestionType } from '../types';
-import { shuffleArray } from '../utils/helpers';
+import { AuthRequest, ExamStatus } from '../types';
+import { AutoGroupError, planAutoExam } from '../services/autoExamService';
 
 export const getExams = async (req: AuthRequest, res: Response) => {
   try {
@@ -83,7 +82,7 @@ export const autoGenerateExam = async (req: AuthRequest, res: Response) => {
     if (!req.user) {
       return res.status(401).json({ message: '未授权' });
     }
-    
+
     const {
       title,
       description,
@@ -95,37 +94,17 @@ export const autoGenerateExam = async (req: AuthRequest, res: Response) => {
       shuffleOptions = true,
       rules,
     } = req.body;
-    
-    const questions: any[] = [];
-    let totalScore = 0;
-    
-    for (const rule of rules) {
-      const { type, difficulty, count, scorePerQuestion } = rule;
-      
-      const query: any = { subject };
-      if (type) query.type = type;
-      if (difficulty) query.difficulty = difficulty;
-      
-      const availableQuestions = await Question.find(query);
-      
-      if (availableQuestions.length < count) {
-        return res.status(400).json({
-          message: `题目数量不足：${type || '所有题型'} - ${difficulty || '所有难度'} 仅有 ${availableQuestions.length} 道，需要 ${count} 道`,
-        });
-      }
-      
-      const selected = shuffleArray(availableQuestions).slice(0, count);
-      
-      selected.forEach((q, index) => {
-        questions.push({
-          questionId: q._id,
-          order: questions.length + 1,
-          score: scorePerQuestion,
-        });
-        totalScore += scorePerQuestion;
-      });
+
+    if (!subject) {
+      return res.status(400).json({ message: '学科不能为空' });
     }
-    
+    if (!Array.isArray(rules) || rules.length === 0) {
+      return res.status(400).json({ message: '组卷规则不能为空' });
+    }
+
+    // 全局去重抽题；必考知识点/条数凑不齐时直接挡下，不生成试卷
+    const { questions: planned, totalScore } = await planAutoExam({ subject, rules });
+
     const exam = await Exam.create({
       title,
       description,
@@ -137,13 +116,59 @@ export const autoGenerateExam = async (req: AuthRequest, res: Response) => {
       status: 'draft' as ExamStatus,
       shuffleQuestions,
       shuffleOptions,
-      questions,
+      questions: planned.map((q, index) => ({
+        questionId: q.questionId,
+        order: index + 1,
+        score: q.score,
+      })),
       createdBy: req.user.id,
     });
-    
+
     res.status(201).json({ success: true, data: exam });
   } catch (error: any) {
+    if (error instanceof AutoGroupError) {
+      return res.status(400).json({
+        message: '组卷条件无法满足，无法生成试卷',
+        shortfalls: error.shortfalls,
+      });
+    }
     res.status(500).json({ message: error.message });
+  }
+};
+
+/** 组卷预检：只校验题库能否满足全部规则（含必考知识点），不创建试卷，供建卷页实时展示缺口 */
+export const validateAutoGenerate = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: '未授权' });
+    }
+
+    const { subject, rules } = req.body;
+
+    if (!subject) {
+      return res.status(400).json({ message: '学科不能为空' });
+    }
+    if (!Array.isArray(rules) || rules.length === 0) {
+      return res.status(400).json({ message: '组卷规则不能为空' });
+    }
+
+    const { questions, totalScore } = await planAutoExam({ subject, rules });
+
+    res.json({
+      success: true,
+      feasible: true,
+      totalQuestions: questions.length,
+      totalScore,
+    });
+  } catch (error: any) {
+    if (error instanceof AutoGroupError) {
+      return res.status(200).json({
+        success: true,
+        feasible: false,
+        shortfalls: error.shortfalls,
+      });
+    }
+    res.status(400).json({ message: error.message });
   }
 };
 
