@@ -68,6 +68,25 @@ export interface IExam {
   updatedAt: Date;
 }
 
+export interface IAutoGenerateRule {
+  type?: QuestionType | '';
+  difficulty?: DifficultyLevel | '';
+  knowledgePoints?: string[];
+  minKnowledgePointCount?: number;
+  count: number;
+  scorePerQuestion: number;
+}
+
+export interface IAutoGenerateShortage {
+  rule: number;
+  type?: QuestionType | '';
+  difficulty?: DifficultyLevel | '';
+  knowledgePoints: string[];
+  required: number;
+  available: number;
+  missing: number;
+}
+
 export interface IAnswer {
   questionId: Types.ObjectId;
   answer: string | string[];

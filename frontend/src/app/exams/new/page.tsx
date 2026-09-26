@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { examAPI, questionAPI } from '@/lib/api';
-import { Question, QuestionType, DifficultyLevel } from '@/types';
+import { Question, QuestionType, DifficultyLevel, AutoGenerateRule, AutoGenerateShortage } from '@/types';
 import { questionTypeLabels, difficultyLabels } from '@/utils';
 
 const CreateExamPage = () => {
@@ -16,6 +16,9 @@ const CreateExamPage = () => {
   const [selectedQuestions, setSelectedQuestions] = useState<Array<{ questionId: string; score: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
+  const [knowledgePointOptions, setKnowledgePointOptions] = useState<string[]>([]);
+  const [shortages, setShortages] = useState<AutoGenerateShortage[]>([]);
+  const [errorMessage, setErrorMessage] = useState('');
   
   const [formData, setFormData] = useState({
     title: '',
@@ -28,12 +31,7 @@ const CreateExamPage = () => {
     shuffleOptions: true,
   });
 
-  const [autoRules, setAutoRules] = useState<Array<{
-    type: QuestionType | '';
-    difficulty: DifficultyLevel | '';
-    count: number;
-    scorePerQuestion: number;
-  }>>([]);
+  const [autoRules, setAutoRules] = useState<AutoGenerateRule[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -51,11 +49,24 @@ const CreateExamPage = () => {
 
   const handleSubjectChange = async (subject: string) => {
     setFormData({ ...formData, subject });
+    setShortages([]);
+    setErrorMessage('');
     try {
       const response = await questionAPI.getQuestions({ subject, limit: 100 });
       setQuestions(response.data.data || []);
     } catch (error) {
       console.error('获取题目失败:', error);
+    }
+    if (subject) {
+      try {
+        const kpRes = await questionAPI.getKnowledgePoints({ subject });
+        setKnowledgePointOptions(kpRes.data.data || []);
+      } catch (error) {
+        console.error('获取知识点失败:', error);
+        setKnowledgePointOptions([]);
+      }
+    } else {
+      setKnowledgePointOptions([]);
     }
   };
 
@@ -73,22 +84,56 @@ const CreateExamPage = () => {
   };
 
   const addRule = () => {
-    setAutoRules([...autoRules, { type: '', difficulty: '', count: 5, scorePerQuestion: 2 }]);
+    setShortages([]);
+    setErrorMessage('');
+    setAutoRules([...autoRules, {
+      type: '',
+      difficulty: '',
+      knowledgePoints: [],
+      minKnowledgePointCount: 1,
+      count: 5,
+      scorePerQuestion: 2,
+    }]);
   };
 
   const updateRule = (index: number, field: string, value: any) => {
+    setShortages([]);
+    setErrorMessage('');
     const newRules = [...autoRules];
     (newRules[index] as any)[field] = value;
     setAutoRules(newRules);
   };
 
+  const toggleRuleKnowledgePoint = (index: number, point: string) => {
+    const rule = autoRules[index];
+    const knowledgePoints = rule.knowledgePoints.includes(point)
+      ? rule.knowledgePoints.filter((p) => p !== point)
+      : [...rule.knowledgePoints, point];
+    updateRule(index, 'knowledgePoints', knowledgePoints);
+  };
+
   const removeRule = (index: number) => {
+    setShortages([]);
+    setErrorMessage('');
     setAutoRules(autoRules.filter((_, i) => i !== index));
+  };
+
+  const describeShortage = (s: AutoGenerateShortage): string => {
+    const parts = [
+      s.type ? questionTypeLabels[s.type as QuestionType] : '全部题型',
+      s.difficulty ? difficultyLabels[s.difficulty as DifficultyLevel] : '全部难度',
+    ];
+    if (s.knowledgePoints.length > 0) {
+      parts.push(`知识点「${s.knowledgePoints.join('、')}」`);
+    }
+    return `规则${s.rule}（${parts.join(' / ')}）：还差 ${s.missing} 道（需要 ${s.required} 道，去重后仅剩 ${s.available} 道）`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setShortages([]);
+    setErrorMessage('');
 
     try {
       if (mode === 'auto') {
@@ -111,7 +156,14 @@ const CreateExamPage = () => {
       }
       router.push('/exams');
     } catch (error: any) {
-      alert(error.response?.data?.message || '创建失败');
+      const data = error.response?.data;
+      if (data?.shortages && data.shortages.length > 0) {
+        // 组卷被挡下：在页面上直接展示各条件的缺口
+        setShortages(data.shortages);
+        setErrorMessage(data.message || '题库题目不足，无法组卷');
+      } else {
+        setErrorMessage(data?.message || '创建失败');
+      }
     } finally {
       setLoading(false);
     }
@@ -309,60 +361,107 @@ const CreateExamPage = () => {
                     ) : (
                       <div className="space-y-4">
                         {autoRules.map((rule, index) => (
-                          <div key={index} className="flex items-end gap-4 p-4 bg-gray-50 rounded-lg">
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">题型</label>
-                              <select
-                                value={rule.type}
-                                onChange={(e) => updateRule(index, 'type', e.target.value)}
-                                className="input-field"
+                          <div key={index} className="p-4 bg-gray-50 rounded-lg space-y-3">
+                            <div className="flex items-end gap-4">
+                              <div className="flex-1">
+                                <label className="block text-xs text-gray-500 mb-1">题型</label>
+                                <select
+                                  value={rule.type}
+                                  onChange={(e) => updateRule(index, 'type', e.target.value)}
+                                  className="input-field"
+                                >
+                                  <option value="">全部题型</option>
+                                  {Object.entries(questionTypeLabels).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex-1">
+                                <label className="block text-xs text-gray-500 mb-1">难度</label>
+                                <select
+                                  value={rule.difficulty}
+                                  onChange={(e) => updateRule(index, 'difficulty', e.target.value)}
+                                  className="input-field"
+                                >
+                                  <option value="">全部难度</option>
+                                  {Object.entries(difficultyLabels).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="w-24">
+                                <label className="block text-xs text-gray-500 mb-1">数量</label>
+                                <input
+                                  type="number"
+                                  value={rule.count}
+                                  onChange={(e) => updateRule(index, 'count', parseInt(e.target.value))}
+                                  className="input-field"
+                                  min="1"
+                                />
+                              </div>
+                              <div className="w-24">
+                                <label className="block text-xs text-gray-500 mb-1">每题分值</label>
+                                <input
+                                  type="number"
+                                  value={rule.scorePerQuestion}
+                                  onChange={(e) => updateRule(index, 'scorePerQuestion', parseInt(e.target.value))}
+                                  className="input-field"
+                                  min="1"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeRule(index)}
+                                className="text-red-600 hover:text-red-700"
                               >
-                                <option value="">全部题型</option>
-                                {Object.entries(questionTypeLabels).map(([key, label]) => (
-                                  <option key={key} value={key}>{label}</option>
-                                ))}
-                              </select>
+                                ✕
+                              </button>
                             </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">难度</label>
-                              <select
-                                value={rule.difficulty}
-                                onChange={(e) => updateRule(index, 'difficulty', e.target.value)}
-                                className="input-field"
-                              >
-                                <option value="">全部难度</option>
-                                {Object.entries(difficultyLabels).map(([key, label]) => (
-                                  <option key={key} value={key}>{label}</option>
-                                ))}
-                              </select>
+                            <div>
+                              <label className="block text-xs text-gray-500 mb-1">
+                                必考知识点（整卷同一题只抽一次，至少抽到的条数需小于等于数量）
+                              </label>
+                              {!formData.subject ? (
+                                <p className="text-xs text-gray-400">请先选择学科</p>
+                              ) : knowledgePointOptions.length === 0 ? (
+                                <p className="text-xs text-gray-400">该学科暂无知识点</p>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {knowledgePointOptions.map((point) => {
+                                    const active = rule.knowledgePoints.includes(point);
+                                    return (
+                                      <button
+                                        key={point}
+                                        type="button"
+                                        onClick={() => toggleRuleKnowledgePoint(index, point)}
+                                        className={`text-xs px-2 py-1 rounded border transition-colors ${
+                                          active
+                                            ? 'bg-primary-600 text-white border-primary-600'
+                                            : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'
+                                        }`}
+                                      >
+                                        {point}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div className="w-24">
-                              <label className="block text-xs text-gray-500 mb-1">数量</label>
-                              <input
-                                type="number"
-                                value={rule.count}
-                                onChange={(e) => updateRule(index, 'count', parseInt(e.target.value))}
-                                className="input-field"
-                                min="1"
-                              />
-                            </div>
-                            <div className="w-24">
-                              <label className="block text-xs text-gray-500 mb-1">每题分值</label>
-                              <input
-                                type="number"
-                                value={rule.scorePerQuestion}
-                                onChange={(e) => updateRule(index, 'scorePerQuestion', parseInt(e.target.value))}
-                                className="input-field"
-                                min="1"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeRule(index)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              ✕
-                            </button>
+                            {rule.knowledgePoints.length > 0 && (
+                              <div className="w-48">
+                                <label className="block text-xs text-gray-500 mb-1">
+                                  必考知识点至少抽到（道）
+                                </label>
+                                <input
+                                  type="number"
+                                  value={rule.minKnowledgePointCount}
+                                  onChange={(e) => updateRule(index, 'minKnowledgePointCount', parseInt(e.target.value) || 0)}
+                                  className="input-field"
+                                  min="1"
+                                  max={rule.count}
+                                />
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -374,10 +473,31 @@ const CreateExamPage = () => {
                     >
                       + 添加规则
                     </button>
+
+                    {shortages.length > 0 && (
+                      <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-sm font-medium text-red-700 mb-2">
+                          题库题目不足，本次组卷已取消。请调整规则或补充题目：
+                        </p>
+                        <ul className="list-disc list-inside space-y-1">
+                          {shortages.map((s, i) => (
+                            <li key={i} className="text-sm text-red-600">
+                              {describeShortage(s)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
+
+            {errorMessage && shortages.length === 0 && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{errorMessage}</p>
+              </div>
+            )}
 
             <div className="flex justify-end gap-4">
               <Link href="/exams" className="btn-secondary">

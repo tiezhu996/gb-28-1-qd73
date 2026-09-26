@@ -62,6 +62,25 @@ export interface Exam {
   updatedAt: string;
 }
 
+export interface AutoGenerateRule {
+  type: QuestionType | '';
+  difficulty: DifficultyLevel | '';
+  knowledgePoints: string[];
+  minKnowledgePointCount: number;
+  count: number;
+  scorePerQuestion: number;
+}
+
+export interface AutoGenerateShortage {
+  rule: number;
+  type?: QuestionType | '';
+  difficulty?: DifficultyLevel | '';
+  knowledgePoints: string[];
+  required: number;
+  available: number;
+  missing: number;
+}
+
 export interface Answer {
   questionId: string;
   answer: string | string[];
